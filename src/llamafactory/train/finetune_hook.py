@@ -26,6 +26,13 @@ def _env_int(name: str, default: int) -> int:
     return int(value)
 
 
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return float(value)
+
+
 # ============================================================================
 # Codec Interface
 # ============================================================================
@@ -163,6 +170,29 @@ class UniformQuantizationCodec(ActivationCodec):
         return h_out
 
 
+class SparsifySmallCodec(ActivationCodec):
+    """微小值稀疏化 codec。
+
+    将绝对值严格小于 eps 的激活替换为 fill_value(默认 0; 可设为 0.001 等小常数),
+    其余保持不变。参数通过环境变量 ACTIVATION_SPARSIFY_EPS / ACTIVATION_SPARSIFY_FILL_VALUE 配置。
+    """
+
+    def __init__(self, eps: float, fill_value: float):
+        self.eps = eps
+        self.fill_value = fill_value
+
+    def encode_decode(
+        self,
+        hidden_states: torch.Tensor,
+        layer_idx: int,
+        step: int,
+        padding_mask: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        fill = torch.full_like(hidden_states, self.fill_value)
+        # |x| >= eps 保留, 否则置为 fill_value
+        return torch.where(hidden_states.abs() >= self.eps, hidden_states, fill)
+
+
 # ============================================================================
 # Codec Factory Functions
 # ============================================================================
@@ -180,6 +210,10 @@ def _get_activation_codec() -> ActivationCodec:
         return UniformQuantizationCodec(bits=4)
     elif codec_type == "uniform_8bit":
         return UniformQuantizationCodec(bits=8)
+    elif codec_type == "sparsify_small":
+        eps = _env_float("ACTIVATION_SPARSIFY_EPS", 1.0)
+        fill_value = _env_float("ACTIVATION_SPARSIFY_FILL_VALUE", 0.0)
+        return SparsifySmallCodec(eps=eps, fill_value=fill_value)
     else:
         raise ValueError(f"Unknown activation codec type: {codec_type}")
 
