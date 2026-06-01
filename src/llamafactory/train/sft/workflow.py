@@ -23,7 +23,7 @@ from ...extras.logging import get_logger
 from ...extras.misc import calculate_tps
 from ...extras.ploting import plot_loss
 from ...model import load_model, load_tokenizer
-from ..finetune_hook import maybe_attach_middle_layer_hooks
+from ..finetune_hook import CodecStateInjectorCallback, maybe_attach_middle_layer_hooks
 from ..trainer_utils import create_modelcard_and_push
 from .metric import ComputeAccuracy, ComputeSimilarity, eval_logit_processor
 from .trainer import CustomSeq2SeqTrainer
@@ -75,7 +75,6 @@ def run_sft(
     if hook_cleanup_callback is not None:
         callbacks.append(hook_cleanup_callback)
     if codec_state is not None:
-        from ..finetune_hook import CodecStateInjectorCallback
         callbacks.append(CodecStateInjectorCallback(codec_state))
 
     # Metric utils

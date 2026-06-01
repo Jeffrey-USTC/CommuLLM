@@ -188,3 +188,5 @@ data/
 # 自定义训练/评估脚本（含密钥等私有配置）
 train_scripts/run_sft.sh
 eval_scripts/
+# 测试输出
+test_codec_real_output/

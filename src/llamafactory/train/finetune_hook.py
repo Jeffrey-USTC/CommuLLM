@@ -132,35 +132,17 @@ class IdentityCodec(ActivationCodec, GradientCodec):
         return hidden_states
 
 
-class Uniform2BitQuantizationCodec(ActivationCodec):
-    """2-bit 均匀量化 codec (包含内层 STE)"""
+class UniformQuantizationCodec(ActivationCodec):
+    """均匀量化 codec, 按 bit 数参数化 (2/4/8 bit)。
 
-    def encode_decode(
-        self,
-        hidden_states: torch.Tensor,
-        layer_idx: int,
-        step: int,
-        padding_mask: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        # 保留原来的量化逻辑
-        h = hidden_states
-        min_val = h.min(dim=-1, keepdim=True).values
-        max_val = h.max(dim=-1, keepdim=True).values
-        scale = (max_val - min_val) / 3.0
-        scale = scale.clamp(min=1e-8)
+    量化范围按最后一维 (channel) 的 min/max 动态确定。
+    """
 
-        normalized = (h - min_val) / scale
-        quantized = normalized.round().clamp(0, 3)
-
-        # 内层 STE: detach + scaled - scaled.detach()
-        scaled = quantized * scale + min_val
-        h_out = scaled.detach() + (scaled - scaled.detach())
-
-        return h_out
-
-
-class Uniform4BitQuantizationCodec(ActivationCodec):
-    """4-bit 均匀量化 codec"""
+    def __init__(self, bits: int):
+        if bits < 1:
+            raise ValueError(f"bits must be >= 1, got {bits}")
+        self.bits = bits
+        self.levels = (1 << bits) - 1  # 2bit->3, 4bit->15, 8bit->255
 
     def encode_decode(
         self,
@@ -172,34 +154,10 @@ class Uniform4BitQuantizationCodec(ActivationCodec):
         h = hidden_states
         min_val = h.min(dim=-1, keepdim=True).values
         max_val = h.max(dim=-1, keepdim=True).values
-        scale = (max_val - min_val) / 15.0
-        scale = scale.clamp(min=1e-8)
+        scale = ((max_val - min_val) / self.levels).clamp(min=1e-8)
 
         normalized = (h - min_val) / scale
-        quantized = normalized.round().clamp(0, 15)
-        h_out = quantized * scale + min_val
-
-        return h_out
-
-
-class Uniform8BitQuantizationCodec(ActivationCodec):
-    """8-bit 均匀量化 codec"""
-
-    def encode_decode(
-        self,
-        hidden_states: torch.Tensor,
-        layer_idx: int,
-        step: int,
-        padding_mask: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        h = hidden_states
-        min_val = h.min(dim=-1, keepdim=True).values
-        max_val = h.max(dim=-1, keepdim=True).values
-        scale = (max_val - min_val) / 255.0
-        scale = scale.clamp(min=1e-8)
-
-        normalized = (h - min_val) / scale
-        quantized = normalized.round().clamp(0, 255)
+        quantized = normalized.round().clamp(0, self.levels)
         h_out = quantized * scale + min_val
 
         return h_out
@@ -217,11 +175,11 @@ def _get_activation_codec() -> ActivationCodec:
     if codec_type == "identity":
         return IdentityCodec()
     elif codec_type == "uniform_2bit":
-        return Uniform2BitQuantizationCodec()
+        return UniformQuantizationCodec(bits=2)
     elif codec_type == "uniform_4bit":
-        return Uniform4BitQuantizationCodec()
+        return UniformQuantizationCodec(bits=4)
     elif codec_type == "uniform_8bit":
-        return Uniform8BitQuantizationCodec()
+        return UniformQuantizationCodec(bits=8)
     else:
         raise ValueError(f"Unknown activation codec type: {codec_type}")
 
